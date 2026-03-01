@@ -123,7 +123,7 @@ def tikz_tree(root, ged_content, max_gen_per_page=5):
         nodes = []
         edges = []
         
-        def walk(p, sosa, local_gen, global_gen, y=0, dy=6):
+        def walk(p, sosa, local_gen, global_gen, y=0, dy=5.5):
             if not p or global_gen > MAX_GEN:
                 return
 
@@ -136,20 +136,20 @@ def tikz_tree(root, ged_content, max_gen_per_page=5):
                 node_text += r" \\ \textbf{$\Rightarrow$}"
                 queue.append((p, sosa, global_gen))
                 nodes.append(
-                    f'\\node (n{sosa}) at ({local_gen*4.5},{y}) {{{node_text}}};'
+                    f'\\node (n{sosa}) at ({local_gen*3.6},{y}) {{{node_text}}};'
                 )
                 return
                 
             nodes.append(
-                f'\\node (n{sosa}) at ({local_gen*4.5},{y}) {{{node_text}}};'
+                f'\\node (n{sosa}) at ({local_gen*3.6},{y}) {{{node_text}}};'
             )
             
             if father:
-                edges.append(f'\\draw (n{sosa}) -- (n{sosa*2});')
+                edges.append(f'\\draw (n{sosa}.east) -- ++(0.3,0) |- (n{sosa*2}.west);')
                 walk(father, sosa*2, local_gen+1, global_gen+1, y+dy/(2**local_gen))
 
             if mother:
-                edges.append(f'\\draw (n{sosa}) -- (n{sosa*2+1});')
+                edges.append(f'\\draw (n{sosa}.east) -- ++(0.3,0) |- (n{sosa*2+1}.west);')
                 walk(mother, sosa*2+1, local_gen+1, global_gen+1, y-dy/(2**local_gen))
 
         walk(current_root, root_sosa, 0, global_gen_start)
@@ -190,6 +190,8 @@ def template(content):
 \\usepackage{{tikz}}
 \\geometry{{margin=2cm}}
 \\makeindex
+
+\\setcounter{{secnumdepth}}{{0}}
 
 \\begin{{document}}
 \\title{{Arbre généalogique}}
