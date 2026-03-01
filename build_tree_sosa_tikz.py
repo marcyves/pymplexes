@@ -3,14 +3,6 @@
 from ged4py.parser import GedcomReader
 from pathlib import Path
 
-GED_FILE = "tree.ged"
-ROOT_XREF = "@I0123@"
-MAX_GEN = 6
-OUTPUT_TEX = "tree.tex"
-
-seen = {}
-
-
 # -------------------------
 # index GED (clé stable)
 # -------------------------
@@ -94,13 +86,13 @@ def build_person(p, ged_content, sosa, gen=0):
 
     if pid in seen:
         first = seen[pid]
-        return f"\\section*{{{sosa}. {esc(name(p))}}}\nVoir \\hyperref[p{first}]{{{first}}}\n"
+        return f"\\section{{{sosa}. {esc(name(p))}}}\nVoir \\hyperref[p{first}]{{{first}}}\n"
 
     seen[pid] = sosa
 
     tex = []
 
-    tex.append(f"\\section*{{{sosa}. {full_name(p)}}}")
+    tex.append(f"\\section{{{sosa}. {full_name(p)}}}")
     tex.append(f"\\label{{p{sosa}}}")
     tex.append(f"\\index{{{full_name(p)}}}")
 
@@ -120,38 +112,53 @@ def build_person(p, ged_content, sosa, gen=0):
 # -------------------------
 # TikZ tree
 # -------------------------
-def tikz_tree(root, ged_content):
+def tikz_tree(root, ged_content, max_gen_per_page=5):
 
-    nodes = []
-    edges = []
+    pages = []
+    queue = [(root, 1, 0)]
+    
+    while queue:
+        current_root, root_sosa, global_gen_start = queue.pop(0)
+        
+        nodes = []
+        edges = []
+        
+        def walk(p, sosa, local_gen, global_gen, y=0, dy=6):
+            if not p or global_gen > MAX_GEN:
+                return
 
-    def walk(p, sosa, gen, x=0, dx=8):
+            node_text = f"{sosa} {esc(full_name(p))}"
+            father, mother = parents(p, ged_content)
+            
+            is_leaf_of_page = (local_gen == max_gen_per_page - 1)
+            
+            if is_leaf_of_page and global_gen < MAX_GEN and (father or mother):
+                node_text += r" \\ \textbf{$\Rightarrow$}"
+                queue.append((p, sosa, global_gen))
+                nodes.append(
+                    f'\\node (n{sosa}) at ({local_gen*4.5},{y}) {{{node_text}}};'
+                )
+                return
+                
+            nodes.append(
+                f'\\node (n{sosa}) at ({local_gen*4.5},{y}) {{{node_text}}};'
+            )
+            
+            if father:
+                edges.append(f'\\draw (n{sosa}) -- (n{sosa*2});')
+                walk(father, sosa*2, local_gen+1, global_gen+1, y+dy/(2**local_gen))
 
-        if not p or gen > MAX_GEN:
-            return
+            if mother:
+                edges.append(f'\\draw (n{sosa}) -- (n{sosa*2+1});')
+                walk(mother, sosa*2+1, local_gen+1, global_gen+1, y-dy/(2**local_gen))
 
-        # 1️⃣ on crée le node
-        nodes.append(
-            f'\\node (n{sosa}) at ({x},{-gen*2}) {{{sosa} {full_name(p)}}};'
-        )
-
-        father, mother = parents(p, ged_content)
-
-        # 2️⃣ on prépare seulement les arêtes
-        if father:
-            edges.append(f'\\draw (n{sosa}) -- (n{sosa*2});')
-            walk(father, sosa*2, gen+1, x-dx/(2**gen))
-
-        if mother:
-            edges.append(f'\\draw (n{sosa}) -- (n{sosa*2+1});')
-            walk(mother, sosa*2+1, gen+1, x+dx/(2**gen))
-
-
-    walk(root, 1, 0)
-
-    return r"""
+        walk(current_root, root_sosa, 0, global_gen_start)
+        
+        title = "La racine" if root_sosa == 1 else f"Suite de la branche {root_sosa} ({esc(full_name(current_root))})"
+        
+        page_tex = r"""
 \newpage
-\section*{Vue synthétique}
+\section{""" + title + r"""}
 \begin{center}
 \begin{tikzpicture}[
 every node/.style={draw, rounded corners, align=center, font=\tiny, minimum width=2.6cm}
@@ -160,6 +167,9 @@ every node/.style={draw, rounded corners, align=center, font=\tiny, minimum widt
 \end{tikzpicture}
 \end{center}
 """
+        pages.append(page_tex)
+
+    return "\n".join(pages)
 
 # -------------------------
 # template
@@ -167,7 +177,12 @@ every node/.style={draw, rounded corners, align=center, font=\tiny, minimum widt
 
 def template(content):
     return f"""
-\\documentclass[11pt,a4paper,twoside]{{article}}
+\\documentclass[
+	fontsize=12pt,
+	twoside=false,
+	secnumdepth=1,
+	a4paper
+]{{scrbook}}
 \\usepackage[french]{{babel}}
 \\usepackage{{geometry}}
 \\usepackage{{hyperref}}
@@ -177,7 +192,15 @@ def template(content):
 \\makeindex
 
 \\begin{{document}}
+\\title{{Arbre généalogique}}
+\\author{{Marc Augier}}
+\\date{{\\today}}
+\\maketitle
+
+\\newpage
 \\tableofcontents
+
+\\chapter{{Les arbres de mes ancêtres}}
 
 {content}
 
@@ -190,6 +213,13 @@ def template(content):
 # main
 # -------------------------
 
+GED_FILE = "tree.ged"
+ROOT_XREF = "@I0123@"
+MAX_GEN = 1000
+OUTPUT_TEX = "tree.tex"
+
+seen = {}
+
 with GedcomReader(GED_FILE) as reader:
     ged_content = build_index(reader)
     
@@ -198,6 +228,6 @@ with GedcomReader(GED_FILE) as reader:
     graphic = tikz_tree(root, ged_content)
     report = build_person(root, ged_content, 1)
 
-Path(OUTPUT_TEX).write_text(template(graphic + report), encoding="utf8")
+Path(OUTPUT_TEX).write_text(template(graphic + f"\\newpage\\chapter{{Les fiches de mes ancêtres}}" + report), encoding="utf8")
 
 print("OK → pdflatex tree.tex x2")
